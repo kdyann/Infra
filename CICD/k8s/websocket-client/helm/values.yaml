@@ -1,0 +1,227 @@
+# Default values for websocket-client
+# This is a YAML-formatted file.
+
+# WebSocket Client Service configuration
+name: websocket-client
+component: websocket-client
+partOf: microservices
+
+# Image configuration
+image:
+  registry: ""
+  repository:
+  pullPolicy: IfNotPresent
+  tag: 2
+
+imagePullSecrets:
+  - name: kcr-regcred
+
+nameOverride: ""
+fullnameOverride: ""
+
+# Replica count
+replicaCount: 1
+
+# Deployment strategy
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 1
+    maxUnavailable: 0
+
+# Service configuration
+service:
+  enabled: true
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 8083
+      protocol: TCP
+      name: http
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8083"
+    prometheus.io/path: "/actuator/prometheus"
+
+# Ingress configuration
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    kubernetes.io/ingress.class: nginx
+  hosts:
+    - host: websocketclient.dkaffeine.com
+      paths:
+        - path: /
+          pathType: Prefix
+          servicePort: 80
+  tls: []
+
+# ConfigMap configuration
+configMap:
+  enabled: false
+  data: {}
+
+# Secret configuration
+secret:
+  enabled: false
+  name: "websocket-client-secrets"
+
+# Environment variables
+env:
+  # Spring Profile - From Secret: websocket-client-secrets
+  SPRING_PROFILES_ACTIVE:
+    valueFrom:
+      secretKeyRef:
+        name: websocket-client-secrets
+        key: SPRING_PROFILES_ACTIVE
+
+  # WebSocket URL - From Secret: websocket-client-secrets
+  APP_WS_URL:
+    valueFrom:
+      secretKeyRef:
+        name: websocket-client-secrets
+        key: APP_WS_URL
+
+  # Bot Token - From Secret: websocket-client-secrets
+  APP_BOT_TOKEN:
+    valueFrom:
+      secretKeyRef:
+        name: websocket-client-secrets
+        key: APP_BOT_TOKEN
+
+  # Webhook URL - From Secret: websocket-client-secrets
+  APP_WEBHOOK_URL:
+    valueFrom:
+      secretKeyRef:
+        name: websocket-client-secrets
+        key: APP_WEBHOOK_URL
+
+  # AI URL - From Secret: websocket-client-secrets
+  APP_AI_URL:
+    valueFrom:
+      secretKeyRef:
+        name: websocket-client-secrets
+        key: APP_AI_URL
+
+  # AI Timeout - From Secret: websocket-client-secrets
+  APP_AI_TIMEOUT_MS:
+    valueFrom:
+      secretKeyRef:
+        name: websocket-client-secrets
+        key: APP_AI_TIMEOUT_MS
+
+
+  # Retry URL - From Secret: websocket-client-secrets
+  APP_RETRY_URL:
+    valueFrom:
+      secretKeyRef:
+        name: websocket-client-secrets
+        key: APP_RETRY_URL
+
+  # Game Select URL - From Secret: websocket-client-secrets
+  APP_GAME_SELECT_URL:
+    valueFrom:
+      secretKeyRef:
+        name: websocket-client-secrets
+        key: APP_GAME_SELECT_URL
+
+  # News Detail URL - From Secret: websocket-client-secrets
+  APP_NEWS_DETAIL_URL:
+    valueFrom:
+      secretKeyRef:
+        name: websocket-client-secrets
+        key: APP_NEWS_DETAIL_URL
+
+  # Redis - From Secret: websocket-client-secrets
+  REDIS_HOST:
+    valueFrom:
+      secretKeyRef:
+        name: websocket-client-secrets
+        key: REDIS_HOST
+  REDIS_PORT:
+    valueFrom:
+      secretKeyRef:
+        name: websocket-client-secrets
+        key: REDIS_PORT
+
+# Resources
+resources:
+  limits:
+    cpu: 1000m
+    memory: 512Mi
+  requests:
+    cpu: 500m
+    memory: 256Mi
+
+# Autoscaling
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# Pod configuration
+podAnnotations: {}
+
+# Startup probe
+startupProbe:
+  httpGet:
+    path: /api/v1/health
+    port: 8083
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 30
+
+# Health checks
+livenessProbe:
+  httpGet:
+    path: /api/v1/health
+    port: 8083
+  initialDelaySeconds: 60
+  periodSeconds: 30
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+# Readiness probe
+readinessProbe:
+  httpGet:
+    path: /api/v1/health
+    port: 8083
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+# Service account
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# Pod security context
+podSecurityContext: {}
+
+# Container security context
+securityContext: {}
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity
+affinity: {}
+
+# ServiceMonitor configuration (for Prometheus Operator)
+serviceMonitor:
+  enabled: true
+  interval: 30s
+  scrapeTimeout: 10s
+  path: /actuator/prometheus
+  port: http
+
+appLabel: websocket-service

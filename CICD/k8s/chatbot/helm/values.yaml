@@ -1,0 +1,377 @@
+# Default values for chatbot
+# This is a YAML-formatted file.
+
+# Chatbot Service configuration
+name: chatbot
+component: chatbot
+partOf: microservices
+
+# Image configuration
+image:
+  registry: ""
+  repository:
+  pullPolicy: IfNotPresent
+  tag: "72"
+
+imagePullSecrets:
+  - name: kcr-regcred
+
+nameOverride: ""
+fullnameOverride: ""
+
+# Replica count
+replicaCount: 1
+
+# Deployment strategy
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 1
+    maxUnavailable: 0
+
+# Service configuration
+service:
+  enabled: true
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 8000
+      protocol: TCP
+      name: http
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8000"
+    prometheus.io/path: "/metrics"
+
+# Ingress configuration
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    kubernetes.io/ingress.class: nginx
+  hosts:
+    - host: chatbot-dev.dkaffeine.com
+      paths:
+        - path: /
+          pathType: Prefix
+          servicePort: 80
+  tls: []
+
+# ConfigMap configuration
+configMap:
+  enabled: false
+  data: {}
+
+# Secret configuration
+secret:
+  enabled: false
+  name: "chatbot-secrets"
+
+# Environment variables
+env:
+  # PostgreSQL - From Secret: chatbot-secrets
+  POSTGRES_HOST:
+    valueFrom:
+      secretKeyRef:
+        name: chatbot-secrets
+        key: postgres_host
+  POSTGRES_PORT:
+    valueFrom:
+      secretKeyRef:
+        name: chatbot-secrets
+        key: postgres_port
+  POSTGRES_DB:
+    valueFrom:
+      secretKeyRef:
+        name: chatbot-secrets
+        key: postgres_db
+  POSTGRES_PASSWORD:
+    valueFrom:
+      secretKeyRef:
+        name: chatbot-secrets
+        key: postgres_password
+  # 코드에서 database_url을 사용하므로 추가
+  DATABASE_URL:
+    valueFrom:
+      secretKeyRef:
+        name: chatbot-secrets
+        key: database_url
+
+  # Redis - From Secret: chatbot-secrets
+  REDIS_HOST:
+    valueFrom:
+      secretKeyRef:
+        name: chatbot-secrets
+        key: redis_host
+  REDIS_PORT:
+    valueFrom:
+      secretKeyRef:
+        name: chatbot-secrets
+        key: redis_port
+  USE_REDIS:
+    value: "true"
+
+  # AWS S3 / Bedrock 크레덴셜
+  AWS_ACCESS_KEY_ID:
+    valueFrom:
+      secretKeyRef:
+        name: chatbot-secrets
+        key: aws_access_key_id
+  AWS_SECRET_ACCESS_KEY:
+    valueFrom:
+      secretKeyRef:
+        name: chatbot-secrets
+        key: aws_secret_access_key
+
+  # AWS Bedrock
+  AWS_REGION:
+    value: "ap-northeast-1"
+  BEDROCK_REGION:
+    value: "ap-northeast-1"
+  # 코드에서 BEDROCK_KB_ID를 찾고 있으므로 추가
+  BEDROCK_KB_ID:
+    valueFrom:
+      secretKeyRef:
+        name: chatbot-secrets
+        key: bedrock_knowledge_base_id
+  BEDROCK_KNOWLEDGE_BASE_ID:
+    valueFrom:
+      secretKeyRef:
+        name: chatbot-secrets
+        key: bedrock_knowledge_base_id
+  BEDROCK_DATA_SOURCE_ID:
+    valueFrom:
+      secretKeyRef:
+        name: chatbot-secrets
+        key: bedrock_data_source_id
+  BEDROCK_ACCESS_KEY_ID:
+    valueFrom:
+      secretKeyRef:
+        name: chatbot-secrets
+        key: bedrock_access_key_id
+  BEDROCK_SECRET_ACCESS_KEY:
+    valueFrom:
+      secretKeyRef:
+        name: chatbot-secrets
+        key: bedrock_secret_access_key
+
+  # LLM Provider
+  LLM_PROVIDER:
+    value: "bedrock"
+  LLM_EMBEDDINGS_PROVIDER:
+    value: "bedrock"
+  LLM_CASUAL_MODEL:
+    value: "anthropic.claude-haiku-4-5-20251001-v1:0"
+  LLM_BUSINESS_MODEL:
+    value: "anthropic.claude-sonnet-4-5-20250929-v1:0"
+
+  # Bedrock Inference Profile IDs
+  BEDROCK_INFERENCE_PROFILE_ID_HAIKU:
+    valueFrom:
+      secretKeyRef:
+        name: chatbot-secrets
+        key: inference_profile_id_haiku
+  BEDROCK_INFERENCE_PROFILE_ID_SONNET:
+    valueFrom:
+      secretKeyRef:
+        name: chatbot-secrets
+        key: inference_profile_id_sonnet
+  BEDROCK_INFERENCE_PROFILE_ID:
+    valueFrom:
+      secretKeyRef:
+        name: chatbot-secrets
+        key: inference_profile_id
+
+  # Reranker
+  RERANKER_TYPE:
+    value: "bedrock"
+  BEDROCK_RERANK_MODEL_ID:
+    value: "amazon.rerank-v1:0"
+
+  # LangSmith (선택적)
+  LANGCHAIN_TRACING_V2:
+    value: "true"
+  LANGCHAIN_API_KEY:
+    valueFrom:
+      secretKeyRef:
+        name: chatbot-secrets
+        key: langchain_api_key
+  LANGCHAIN_PROJECT:
+    value: "chatbot-production"
+
+# Resources
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 500m
+    memory: 512Mi
+
+# Autoscaling
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# Pod configuration
+podAnnotations: {}
+
+# Startup probe - 타임아웃 시간을 크게 늘려서 설정
+startupProbe:
+  httpGet:
+    path: /api/v1/health
+    port: 8000
+  initialDelaySeconds: 60
+  periodSeconds: 30
+  timeoutSeconds: 60  # 30초로 크게 증가
+  failureThreshold: 30  # 실패 허용 횟수 증가
+
+# Health checks - 타임아웃 시간을 크게 늘려서 설정
+livenessProbe:
+  httpGet:
+    path: /api/v1/health
+    port: 8000
+  initialDelaySeconds: 120  # 초기 지연 시간 증가
+  periodSeconds: 60  # 체크 주기 증가
+  timeoutSeconds: 60  # 30초로 크게 증가
+  failureThreshold: 5  # 실패 허용 횟수 증가
+
+# Readiness probe - 타임아웃 시간을 크게 늘려서 설정
+readinessProbe:
+  httpGet:
+    path: /api/v1/health
+    port: 8000
+  initialDelaySeconds: 60  # 초기 지연 시간 증가
+  periodSeconds: 30
+  timeoutSeconds: 60  # 30초로 크게 증가
+  failureThreshold: 5  # 실패 허용 횟수 증가
+
+# Service account
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# Pod security context
+podSecurityContext: {}
+
+# Container security context
+securityContext: {}
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity
+affinity: {}
+
+# ServiceMonitor configuration (for Prometheus Operator)
+serviceMonitor:
+  enabled: true
+  interval: 30s
+  scrapeTimeout: 10s
+  path: /metrics
+  port: http
+
+# Celery Worker configuration
+celeryWorker:
+  enabled: true
+  replicaCount: 1
+  concurrency: 2  # CPU 부족으로 인해 낮춤
+  loglevel: info
+  pool: prefork
+  maxTasksPerChild: 1000
+  taskTimeLimit: 300
+  taskSoftTimeLimit: 240
+  
+  # Resources
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+  
+  # Environment variables (기존 chatbot Secret 재사용)
+  # FastAPI와 공통으로 사용하는 환경변수는 envFrom으로 주입
+  envFrom:
+    - secretRef:
+        name: chatbot-secrets
+  
+  # Celery Worker 전용 환경변수
+  env:
+    # Redis URL for Celery broker and result backend
+    REDIS_URL:
+      valueFrom:
+        secretKeyRef:
+          name: chatbot-secrets
+          key: redis_url
+
+    DATABASE_URL:
+      valueFrom:
+        secretKeyRef:
+          name: chatbot-secrets
+          key: database_url
+
+    # AWS 자격증명 
+    AWS_ACCESS_KEY_ID:
+      valueFrom:
+        secretKeyRef:
+          name: chatbot-secrets
+          key: aws_access_key_id
+    AWS_SECRET_ACCESS_KEY:
+      valueFrom:
+        secretKeyRef:
+          name: chatbot-secrets
+          key: aws_secret_access_key
+    AWS_REGION:
+      value: "ap-northeast-1"
+
+    BEDROCK_REGION:
+      value: "ap-northeast-1"
+    BEDROCK_KB_ID:
+      valueFrom:
+        secretKeyRef:
+          name: chatbot-secrets
+          key: bedrock_knowledge_base_id
+    BEDROCK_KNOWLEDGE_BASE_ID:
+      valueFrom:
+        secretKeyRef:
+          name: chatbot-secrets
+          key: bedrock_knowledge_base_id
+    BEDROCK_DATA_SOURCE_ID:
+      valueFrom:
+        secretKeyRef:
+          name: chatbot-secrets
+          key: bedrock_data_source_id
+    BEDROCK_ACCESS_KEY_ID:
+      valueFrom:
+        secretKeyRef:
+           name: chatbot-secrets
+           key: bedrock_access_key_id
+    BEDROCK_SECRET_ACCESS_KEY:
+      valueFrom:
+        secretKeyRef:
+           name: chatbot-secrets
+           key: bedrock_secret_access_key
+
+
+  # Pod annotations
+  podAnnotations: {}
+  
+  # Node selector
+  nodeSelector: {}
+  
+  # Tolerations
+  tolerations: []
+  
+  # Affinity
+  affinity: {}
+
+appLabel: chatbot-service

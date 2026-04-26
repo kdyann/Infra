@@ -1,0 +1,177 @@
+pipeline {
+    agent {
+        // Jenkins Kubernetes plugin으로 Kaniko + Builder 포함된 Pod 띄우기
+        kubernetes {
+            yaml '''
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    app: jenkins-kaniko
+spec:
+  containers:
+    - name: builder
+      image: eclipse-temurin:17-jdk-alpine
+      command:
+        - cat
+      tty: true
+
+    - name: kaniko
+      image: gcr.io/kaniko-project/executor:debug
+      command:
+        - cat
+      tty: true
+      volumeMounts:
+        - name: kcr-docker-config
+          mountPath: /kaniko/.docker
+
+  volumes:
+    - name: kcr-docker-config
+      secret:
+        secretName: kcr-regcred
+        items:
+          - key: .dockerconfigjson
+            path: config.json
+'''
+            // 기본 컨테이너는 builder (Gradle 빌드용)
+            defaultContainer 'builder'
+        }
+    }
+
+    environment {
+        // Kakao Cloud Container Registry
+        REGISTRY_HOST      = 'pbl07-03.kr-central-2.kcr.dev'
+        REGISTRY_NAMESPACE = 'dkaffeine'
+        SERVICE_NAME       = 'dkaffeine-be'
+
+        // GitHub Infra Repo
+        GITHUB_CREDENTIAL  = 'kdyann'
+        INFRA_REPO         = 'https://github.com/dktechin-pbl/DKaffeine-Infra.git'
+    }
+
+    stages {
+
+        /* 1) Checkout BE 서비스 레포 */
+        stage('Checkout') {
+            steps {
+                echo "📦 Checking out DKaffeine-BE source code..."
+                checkout scm
+            }
+            post {
+                success { echo "✅ [Checkout] Git repository checkout success" }
+                failure { echo "❌ [Checkout] Failed to checkout repository" }
+            }
+        }
+
+        /* 2) Gradle Build (bootJar 생성) */
+        stage('Gradle Build') {
+            steps {
+                echo "🛠 Running Gradle build (bootJar)..."
+                container('builder') {
+                    sh '''
+                    set -e
+                    ls -al
+                    chmod +x ./gradlew
+                    ./gradlew clean bootJar -x test
+                    echo "✅ Gradle build complete. Built JARs:"
+                    ls -al build/libs || echo "⚠️ build/libs not found"
+                    '''
+                }
+            }
+            post {
+                success { echo "✅ [Gradle] bootJar build success" }
+                failure { echo "❌ [Gradle] bootJar build failed" }
+            }
+        }
+
+        /* 3) Docker Build & Push (Kaniko) */
+        stage('Docker Build & Push (Kaniko)') {
+            steps {
+                echo "🐳 Building & Pushing DKaffeine-BE Docker image with Kaniko..."
+
+                // kaniko 컨테이너 안에서 실행
+                container('kaniko') {
+                    sh '''
+                    set -e
+
+                    IMAGE_BASE=${REGISTRY_HOST}/${REGISTRY_NAMESPACE}/${SERVICE_NAME}
+
+                    echo "IMAGE_BASE: ${IMAGE_BASE}"
+                    echo "WORKSPACE : ${WORKSPACE}"
+
+                    echo "📂 Check build/libs in workspace before Kaniko:"
+                    ls -al build/libs || echo "⚠️ build/libs not found in workspace"
+
+                    /kaniko/executor \
+                      --context=${WORKSPACE} \
+                      --dockerfile=${WORKSPACE}/Dockerfile \
+                      --destination=${IMAGE_BASE}:${BUILD_NUMBER} \
+                      --destination=${IMAGE_BASE}:latest \
+                      --cache=false
+                    '''
+                }
+            }
+            post {
+                success { echo "✅ [Kaniko] Image build & push success" }
+                failure { echo "❌ [Kaniko] Image build & push failed" }
+            }
+        }
+
+        /* 4) Helm values.yaml 업데이트 (Infra Repo) */
+        stage('Update Helm values.yaml') {
+            steps {
+                echo "🧭 Updating BE Helm values.yaml in infra repo..."
+
+                container('builder') {
+                    withCredentials([usernamePassword(
+                            credentialsId: GITHUB_CREDENTIAL,
+                            usernameVariable: 'GIT_USER',
+                            passwordVariable: 'GIT_TOKEN'
+                    )]) {
+                        sh '''
+                        set -e
+                        echo "📦 Installing git in builder container..."
+                        apk add --no-cache git
+
+                        echo "📁 Move to workspace and clone infra repo..."
+                        cd "$WORKSPACE"
+                        rm -rf infra
+                        git clone https://$GIT_USER:$GIT_TOKEN@github.com/dktechin-pbl/DKaffeine-Infra.git infra
+
+                        cd infra
+
+                        git config user.email "ci@jenkins.local"
+                        git config user.name "jenkins-ci"
+
+                        TARGET_FILE=k8s/back/helm/values.yaml
+
+                        if [ -f "$TARGET_FILE" ]; then
+                            echo "🔧 Updating tag in $TARGET_FILE ..."
+
+                            # tag: "..." 한 줄만 빌드 번호로 교체
+                            sed -i "s/tag: .*/tag: \\"${BUILD_NUMBER}\\"/" "$TARGET_FILE"
+
+                            git status
+                            git add "$TARGET_FILE"
+                            git commit -m "[CI] Update dkaffeine-be image tag to ${BUILD_NUMBER}" || echo "No changes to commit"
+
+                            git push origin main
+                        else
+                            echo "⚠️ values.yaml not found at $TARGET_FILE! Skipping..."
+                        fi
+                        '''
+                    }
+                }
+            }
+            post {
+                success { echo "✅ [Helm Update] BE values.yaml updated in infra repo!" }
+                failure { echo "❌ [Helm Update] Failed to update infra repo!" }
+            }
+        }
+    }
+
+    post {
+        success { echo "🎉 CI pipeline completed successfully for ${SERVICE_NAME}!" }
+        failure { echo "🚨 CI pipeline failed for ${SERVICE_NAME}. Check logs above for details." }
+    }
+}

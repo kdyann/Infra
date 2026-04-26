@@ -1,0 +1,299 @@
+# Default values for backend
+# This is a YAML-formatted file.
+
+# Backend Service configuration
+name: backend
+component: backend
+partOf: microservices
+
+# Image configuration
+image:
+  registry: ""
+  repository:
+  pullPolicy: IfNotPresent
+  tag: "27"
+
+imagePullSecrets:
+  - name: kcr-regcred
+
+nameOverride: ""
+fullnameOverride: ""
+
+# Replica count
+replicaCount: 1
+
+# Deployment strategy
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 1
+    maxUnavailable: 0
+
+# Service configuration
+service:
+  enabled: true
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 8082
+      protocol: TCP
+      name: http
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8082"
+    prometheus.io/path: "/actuator/prometheus"
+
+# Ingress configuration
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    kubernetes.io/ingress.class: nginx
+  hosts:
+    - host: backend.dkaffeine.com
+      paths:
+        - path: /
+          pathType: Prefix
+          servicePort: 80
+  tls: []
+
+# ConfigMap configuration
+configMap:
+  enabled: false
+  data: {}
+
+# Secret configuration
+secret:
+  enabled: false
+  name: "dkaffein-be-secrets"
+
+# Environment variables
+env:
+  # Spring Profile
+  SPRING_PROFILES_ACTIVE:
+    value: "dev"
+
+  # PostgreSQL - From Secret: dkaffein-be-secrets
+  POSTGRES_HOST:
+    valueFrom:
+      secretKeyRef:
+        name: dkaffein-be-secrets
+        key: POSTGRES_HOST
+  POSTGRES_PORT:
+    valueFrom:
+      secretKeyRef:
+        name: dkaffein-be-secrets
+        key: POSTGRES_PORT
+  POSTGRES_DB:
+    valueFrom:
+      secretKeyRef:
+        name: dkaffein-be-secrets
+        key: POSTGRES_DB
+  POSTGRES_USER:
+    valueFrom:
+      secretKeyRef:
+        name: dkaffein-be-secrets
+        key: POSTGRES_USER
+  POSTGRES_PASSWORD:
+    valueFrom:
+      secretKeyRef:
+        name: dkaffein-be-secrets
+        key: POSTGRES_PASSWORD
+
+  # Redis - From Secret: dkaffein-be-secrets
+  REDIS_HOST:
+    valueFrom:
+      secretKeyRef:
+        name: dkaffein-be-secrets
+        key: REDIS_HOST
+  REDIS_PORT:
+    valueFrom:
+      secretKeyRef:
+        name: dkaffein-be-secrets
+        key: REDIS_PORT
+  REDIS_PASSWORD:
+    valueFrom:
+      secretKeyRef:
+        name: dkaffein-be-secrets
+        key: REDIS_PASSWORD
+
+  # JWT - From Secret: dkaffein-be-secrets
+  JWT_SECRET:
+    valueFrom:
+      secretKeyRef:
+        name: dkaffein-be-secrets
+        key: JWT_SECRET
+  JWT_ACCESS_EXP:
+    valueFrom:
+      secretKeyRef:
+        name: dkaffein-be-secrets
+        key: JWT_ACCESS_EXP
+  JWT_REFRESH_EXP:
+    valueFrom:
+      secretKeyRef:
+        name: dkaffein-be-secrets
+        key: JWT_REFRESH_EXP
+
+  # Email - From Secret: dkaffein-be-secrets
+  EMAIL_USERNAME:
+    valueFrom:
+      secretKeyRef:
+        name: dkaffein-be-secrets
+        key: EMAIL_USERNAME
+  EMAIL_PASSWORD:
+    valueFrom:
+      secretKeyRef:
+        name: dkaffein-be-secrets
+        key: EMAIL_PASSWORD
+
+  # Kakao S3 - From Secret: dkaffein-be-secrets
+  KAKAO_S3_BUCKET:
+    valueFrom:
+      secretKeyRef:
+        name: dkaffein-be-secrets
+        key: KAKAO_S3_BUCKET
+  KAKAO_S3_ACCESS_KEY:
+    valueFrom:
+      secretKeyRef:
+        name: dkaffein-be-secrets
+        key: KAKAO_S3_ACCESS_KEY
+  KAKAO_S3_SECRET_KEY:
+    valueFrom:
+      secretKeyRef:
+        name: dkaffein-be-secrets
+        key: KAKAO_S3_SECRET_KEY
+
+  # RAG Service - From Secret: dkaffein-be-secrets
+  RAG_BASE_URL:
+    valueFrom:
+      secretKeyRef:
+        name: dkaffein-be-secrets
+        key: RAG_BASE_URL
+
+  # Chatbot Service - From Secret: dkaffein-be-secrets
+  CHATBOT_BASE_URL:
+    valueFrom:
+      secretKeyRef:
+        name: dkaffein-be-secrets
+        key: CHATBOT_BASE_URL
+  CHATBOT_ENDPOINT:
+    valueFrom:
+      secretKeyRef:
+        name: dkaffein-be-secrets
+        key: CHATBOT_ENDPOINT
+  CHATBOT_CONFIG_ENDPOINT:
+    valueFrom:
+      secretKeyRef:
+        name: dkaffein-be-secrets
+        key: CHATBOT_CONFIG_ENDPOINT
+
+  # Master Seed - From Secret: dkaffein-be-secrets
+  MASTER_SEED_EMAIL:
+    valueFrom:
+      secretKeyRef:
+        name: dkaffein-be-secrets
+        key: MASTER_SEED_EMAIL
+  MASTER_SEED_PASSWORD:
+    valueFrom:
+      secretKeyRef:
+        name: dkaffein-be-secrets
+        key: MASTER_SEED_PASSWORD
+
+  # News API - From Secret: dkaffein-be-secrets
+  NEWS_API_KEY:
+    valueFrom:
+      secretKeyRef:
+        name: dkaffein-be-secrets
+        key: NEWS_API_KEY
+
+  # Health Check Configuration
+  # DB와 Redis health check를 비활성화하여 느린 응답 문제 해결
+  MANAGEMENT_HEALTH_DB_ENABLED:
+    value: "false"
+  MANAGEMENT_HEALTH_REDIS_ENABLED:
+    value: "false"
+  MANAGEMENT_HEALTH_MAIL_ENABLED:
+    value: "false"
+  LOGGING_LEVEL_COM_ZAXXER_HIKARI_POOL_POOLBASE:
+    value: "ERROR"
+
+# Resources
+resources:
+  limits:
+    cpu: 1500m
+    memory: 1Gi
+  requests:
+    cpu: 500m
+    memory: 512Mi
+
+# Autoscaling
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# Pod configuration
+podAnnotations: {}
+
+# Startup probe
+startupProbe:
+  httpGet:
+    path: /actuator/health
+    port: 8082
+  initialDelaySeconds: 60
+  periodSeconds: 30
+  timeoutSeconds: 60
+  failureThreshold: 30
+
+# Health checks
+livenessProbe:
+  httpGet:
+    path: /actuator/health
+    port: 8082
+  initialDelaySeconds: 120
+  periodSeconds: 60
+  timeoutSeconds: 60
+  failureThreshold: 30
+
+# Readiness probe
+readinessProbe:
+  httpGet:
+    path: /actuator/health
+    port: 8082
+  initialDelaySeconds: 60
+  periodSeconds: 30
+  timeoutSeconds: 60
+  failureThreshold: 5
+
+# Service account
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# Pod security context
+podSecurityContext: {}
+
+# Container security context
+securityContext: {}
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity
+affinity: {}
+
+# ServiceMonitor configuration (for Prometheus Operator)
+serviceMonitor:
+  enabled: true
+  interval: 30s
+  scrapeTimeout: 10s
+  path: /actuator/prometheus
+  port: http
+
+appLabel: core-service

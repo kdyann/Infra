@@ -1,0 +1,185 @@
+pipeline {
+    agent {
+        kubernetes {
+            yaml '''
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    app: jenkins-kaniko-websocket-client
+spec:
+  containers:
+    - name: builder
+      image: eclipse-temurin:21-jdk-alpine
+      command:
+        - cat
+      tty: true
+
+    - name: kaniko
+      image: gcr.io/kaniko-project/executor:debug
+      command:
+        - cat
+      tty: true
+      volumeMounts:
+        - name: kcr-docker-config
+          mountPath: /kaniko/.docker
+
+  volumes:
+    - name: kcr-docker-config
+      secret:
+        secretName: kcr-regcred
+        items:
+          - key: .dockerconfigjson
+            path: config.json
+'''
+            defaultContainer 'builder'
+        }
+    }
+
+    environment {
+        REGISTRY_HOST      = ''
+        REGISTRY_NAMESPACE = 'dkaffeine'
+        SERVICE_NAME       = 'websocket-client'
+
+        GITHUB_CREDENTIAL  = 'kdyann'
+        INFRA_REPO         = ''
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                echo "📦 Checking out websocket-client source code..."
+                checkout scm
+            }
+            post {
+                success { echo "✅ [Checkout] Git repository checkout success" }
+                failure { echo "❌ [Checkout] Failed to checkout repository" }
+            }
+        }
+
+        stage('Gradle Build') {
+            steps {
+                echo "🛠 Running Gradle build (bootJar) for websocket-client..."
+                container('builder') {
+                    sh '''
+                    set -e
+                    ls -al
+                    chmod +x ./gradlew
+                    ./gradlew clean bootJar -x test
+
+                    echo "✅ Gradle build complete. Built JARs:"
+                    ls -al build/libs || echo "⚠️ build/libs not found"
+                    '''
+                }
+            }
+            post {
+                success { echo "✅ [Gradle] bootJar build success" }
+                failure { echo "❌ [Gradle] bootJar build failed" }
+            }
+        }
+
+        stage('Docker Build & Push (Kaniko with Cache)') {
+            steps {
+                echo "🐳 Building & Pushing websocket-client Docker image with Kaniko Cache..."
+
+                container('kaniko') {
+                    sh '''
+                    set -e
+
+                    IMAGE_BASE=${REGISTRY_HOST}/${REGISTRY_NAMESPACE}/${SERVICE_NAME}
+                    CACHE_REPO=${REGISTRY_HOST}/${REGISTRY_NAMESPACE}/${SERVICE_NAME}-cache
+
+                    echo "IMAGE_BASE: ${IMAGE_BASE}"
+                    echo "CACHE_REPO: ${CACHE_REPO}"
+                    echo "WORKSPACE : ${WORKSPACE}"
+
+                    echo "📂 Check build/libs in workspace before Kaniko:"
+                    ls -al build/libs || echo "⚠️ build/libs not found in workspace"
+
+                    /kaniko/executor \
+                      --context=${WORKSPACE} \
+                      --dockerfile=${WORKSPACE}/Dockerfile \
+                      --destination=${IMAGE_BASE}:${BUILD_NUMBER} \
+                      --destination=${IMAGE_BASE}:latest \
+                      --cache=true \
+                      --cache-repo=${CACHE_REPO} \
+                      --cache-ttl=168h
+                    '''
+                }
+            }
+            post {
+                success { echo "✅ [Kaniko] Image build & push success (cache enabled)" }
+                failure { echo "❌ [Kaniko] Image build & push failed" }
+            }
+        }
+
+        stage('Update Helm values.yaml') {
+            steps {
+                echo "🧭 Updating websocket-client Helm values.yaml in infra repo..."
+
+                container('builder') {
+                    withCredentials([usernamePassword(
+                        credentialsId: GITHUB_CREDENTIAL,
+                        usernameVariable: 'GIT_USER',
+                        passwordVariable: 'GIT_TOKEN'
+                    )]) {
+                        sh '''
+                        set -e
+
+                        echo "📦 Installing git in builder container..."
+                        apk add --no-cache git
+
+                        echo "📁 Move to workspace and clone infra repo..."
+                        cd "$WORKSPACE"
+                        rm -rf infra
+                        git clone https://$GIT_USER:$GIT_TOKEN@github.com/dktechin-pbl/DKaffeine-Infra.git infra
+                        cd infra
+
+                        git config user.email "ci@jenkins.local"
+                        git config user.name "jenkins-ci"
+
+                        git checkout main || git checkout -b main
+                        git pull origin main || echo "No existing main branch"
+
+                        TARGET_FILE=k8s/websocket-client/helm/values.yaml
+                        echo "🎯 TARGET_FILE = $TARGET_FILE"
+
+                        if [ -f "$TARGET_FILE" ]; then
+                            echo "🔧 Before update ======================="
+                            grep -n "tag:" "$TARGET_FILE" || echo "no tag line"
+
+                            sed -i "s/^\\([[:space:]]*tag:\\)[[:space:]]*\".*\"/\\1 \"${BUILD_NUMBER}\"/" "$TARGET_FILE"
+
+                            echo "🔧 After update ========================"
+                            grep -n "tag:" "$TARGET_FILE" || echo "no tag line"
+
+                            git status
+                            git add "$TARGET_FILE"
+
+                            if git diff --cached --quiet; then
+                                echo "⚠️ No changes to commit"
+                            else
+                                git commit -m "[CI] Update websocket-client image tag to ${BUILD_NUMBER}"
+                                git push origin main
+                                echo "✅ Successfully pushed tag update to main branch"
+                            fi
+                        else
+                            echo "⚠️ values.yaml not found at $TARGET_FILE! Skipping..."
+                            exit 1
+                        fi
+                        '''
+                    }
+                }
+            }
+            post {
+                success { echo "✅ [Helm Update] websocket-client values.yaml updated in infra repo!" }
+                failure { echo "❌ [Helm Update] Failed to update infra repo!" }
+            }
+        }
+    }
+
+    post {
+        success { echo "🎉 CI pipeline completed successfully for ${SERVICE_NAME}!" }
+        failure { echo "🚨 CI pipeline failed for ${SERVICE_NAME}. Check logs above for details." }
+    }
+}

@@ -1,0 +1,107 @@
+{{- if .Values.celeryWorker.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "chatbot.fullname" . }}-celery-worker
+  labels:
+    {{- include "chatbot.labels" . | nindent 4 }}
+    app.kubernetes.io/component: celery-worker
+spec:
+  replicas: {{ .Values.celeryWorker.replicaCount }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      {{- include "chatbot.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: celery-worker
+  template:
+    metadata:
+      {{- with .Values.celeryWorker.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "chatbot.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: celery-worker
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "chatbot.serviceAccountName" . }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: celery-worker
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          image: "{{ if .Values.image.registry }}{{ .Values.image.registry }}/{{ end }}{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["celery"]
+          args:
+            - "-A"
+            - "app.worker.celery_app"
+            - "worker"
+            - "--loglevel={{ .Values.celeryWorker.loglevel }}"
+            - "--concurrency={{ .Values.celeryWorker.concurrency }}"
+            {{- if .Values.celeryWorker.pool }}
+            - "--pool={{ .Values.celeryWorker.pool }}"
+            {{- end }}
+            {{- if .Values.celeryWorker.maxTasksPerChild }}
+            - "--max-tasks-per-child={{ .Values.celeryWorker.maxTasksPerChild }}"
+            {{- end }}
+            {{- if .Values.celeryWorker.taskTimeLimit }}
+            - "--time-limit={{ .Values.celeryWorker.taskTimeLimit }}"
+            {{- end }}
+            {{- if .Values.celeryWorker.taskSoftTimeLimit }}
+            - "--soft-time-limit={{ .Values.celeryWorker.taskSoftTimeLimit }}"
+            {{- end }}
+          env:
+            # Celery Worker 환경변수
+            {{- if .Values.celeryWorker.env }}
+            {{- range $key, $value := .Values.celeryWorker.env }}
+            - name: {{ $key }}
+              {{- if kindIs "map" $value }}
+              {{- toYaml $value | nindent 14 }}
+              {{- else }}
+              value: {{ $value | quote }}
+              {{- end }}
+            {{- end }}
+            {{- end }}
+          {{- if .Values.celeryWorker.envFrom }}
+          envFrom:
+            {{- range .Values.celeryWorker.envFrom }}
+            - {{- toYaml . | nindent 14 }}
+            {{- end }}
+          {{- end }}
+          {{- if .Values.celeryWorker.livenessProbe }}
+          livenessProbe:
+            {{- toYaml .Values.celeryWorker.livenessProbe | nindent 12 }}
+          {{- end }}
+          {{- if .Values.celeryWorker.readinessProbe }}
+          readinessProbe:
+            {{- toYaml .Values.celeryWorker.readinessProbe | nindent 12 }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.celeryWorker.resources | nindent 12 }}
+      {{- with .Values.celeryWorker.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.celeryWorker.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.celeryWorker.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
+
